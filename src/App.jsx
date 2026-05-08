@@ -15,12 +15,39 @@ async function readZip(file) {
 
 async function extractChunks(file) {
   const name = file.name.toLowerCase();
+  if (name.endsWith(".hwp"))  return await parseHwp(file);
   if (name.endsWith(".hwpx")) return await parseHwpx(file);
   if (name.endsWith(".docx")) return await parseDocx(file);
   if (name.endsWith(".pptx")) return await parsePptx(file);
   if (name.endsWith(".xlsx")) return await parseXlsx(file);
   if (name.endsWith(".pdf"))  return await parsePdf(file);
   throw new Error("지원하지 않는 파일 형식입니다.");
+}
+
+async function parseHwp(file) {
+  const { parseHwp: kordocParseHwp } = await import("kordoc");
+  const buf = await file.arrayBuffer();
+  const result = await kordocParseHwp(buf);
+  if (!result.success) throw new Error(`HWP 파싱 실패: ${result.error}`);
+  const chunks = [];
+  let paraNum = 0;
+  for (const block of result.blocks) {
+    const text = extractBlockText(block).trim();
+    if (text) { paraNum++; chunks.push({ text, location: `${paraNum}번째 단락` }); }
+  }
+  return chunks;
+}
+
+function extractBlockText(block) {
+  if (block.type === "paragraph" || block.type === "heading" || block.type === "list") {
+    const own = block.text ?? "";
+    const child = (block.children ?? []).map(extractBlockText).join(" ");
+    return [own, child].filter(Boolean).join(" ");
+  }
+  if (block.type === "table" && block.table) {
+    return block.table.cells.flatMap(row => row.map(cell => cell.text ?? "")).filter(Boolean).join(" ");
+  }
+  return "";
 }
 
 async function parseDocx(file) {
